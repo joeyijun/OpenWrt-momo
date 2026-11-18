@@ -123,6 +123,22 @@ prepare_files() {
 	fi
 }
 
+publish_profile() {
+	local source="$1" target="$2" staged
+	[ -s "$source" ] || return 1
+	if cmp -s "$source" "$target"; then
+		return 0
+	fi
+
+	# Keep the replacement on the same filesystem so readers only see complete files.
+	staged=$(mktemp "${target%/*}/.${target##*/}.XXXXXX") || return 1
+	if cat "$source" > "$staged" && mv -f "$staged" "$target"; then
+		return 0
+	fi
+	rm -f "$staged"
+	return 1
+}
+
 log() {
 	echo "[$(date "+%Y-%m-%d %H:%M:%S")] [$1] $2" >> "$APP_LOG_PATH"
 }

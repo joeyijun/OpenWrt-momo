@@ -19,7 +19,13 @@
 - 配置文件编辑器
 - 定时重启
 
-## 安装和更新
+本 fork 在内存中生成运行配置。开启配置测试时，先通过 sing-box 检查，再替换运行文件。订阅刷新会先检查 JSON 格式，保留旧文件以应对空配置和网页错误。订阅或运行配置内容相同时会保留原文件。
+
+选择优先远程订阅且已有缓存时，服务启动等待远程请求最多 10 秒。请求失败时使用本地订阅。需要从单独地址获取流量信息时，可在 LuCI 手动刷新。
+
+## 安装或更新上游版本
+
+下列命令安装上游软件包。本 fork 的软件包可使用下文的编译步骤生成。
 
 ### A. 从软件源安装（推荐）
 
@@ -74,7 +80,7 @@ wget -O - https://github.com/nikkinikki-org/OpenWrt-momo/raw/refs/heads/main/uni
 
 ```shell
 # 添加源
-echo "src-git momo https://github.com/nikkinikki-org/OpenWrt-momo.git;main" >> "feeds.conf.default"
+echo "src-git momo https://github.com/joeyijun/OpenWrt-momo.git;main" >> "feeds.conf.default"
 # 更新并安装源
 ./scripts/feeds update -a
 ./scripts/feeds install -a

@@ -19,7 +19,13 @@ Transparent Proxy with sing-box on OpenWrt.
 - Profile Editor
 - Scheduled Restart
 
-## Install & Update
+This fork generates the runtime profile in memory. When profile testing is enabled, sing-box checks the candidate before it replaces the runtime file. Subscription updates reject malformed and empty configurations. Both operations keep the existing file when its contents match.
+
+When remote subscriptions are preferred and a cached copy exists, startup waits up to 10 seconds for one download attempt and uses the cache if it fails. Manual refreshes also fetch quota details from the optional separate URL.
+
+## Install or Update Upstream Packages
+
+These commands install the upstream packages. To build the fork, use the compilation steps below.
 
 ### A. Install From Feed (Recommended)
 
@@ -74,7 +80,7 @@ Note that the steps above may change base on config.
 
 ```shell
 # add feed
-echo "src-git momo https://github.com/nikkinikki-org/OpenWrt-momo.git;main" >> "feeds.conf.default"
+echo "src-git momo https://github.com/joeyijun/OpenWrt-momo.git;main" >> "feeds.conf.default"
 # update & install feeds
 ./scripts/feeds update -a
 ./scripts/feeds install -a

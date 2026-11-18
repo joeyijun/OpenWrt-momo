@@ -2,8 +2,9 @@
 
 'use strict';
 
+import { readfile } from 'fs';
 import { cursor } from 'uci';
-import { uci_bool, uci_int, uci_array, merge, trim_all, load_profile, save_profile } from '/etc/momo/ucode/include.uc';
+import { uci_bool, uci_int, merge, trim_all } from '/etc/momo/ucode/include.uc';
 
 const uci = cursor();
 
@@ -43,6 +44,7 @@ config['experimental']['clash_api']['external_ui_download_url'] = uci.get('momo'
 config['experimental']['clash_api']['external_controller'] = uci.get('momo', 'mixin', 'external_control_api_listen');
 config['experimental']['clash_api']['secret'] = uci.get('momo', 'mixin', 'external_control_api_secret');
 
-const profile = load_profile();
-
-save_profile(merge(profile, trim_all(config)));
+const profile = json(readfile(ARGV[0]));
+if (type(profile) != 'object')
+	die('Expected a JSON object in the profile.');
+printf('%.2J\n', merge(profile, trim_all(config)));
