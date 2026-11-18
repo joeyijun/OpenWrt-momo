@@ -8,6 +8,7 @@ on:
     paths:
       - 'momo/**'
       - 'luci-app-momo/**'
+      - 'tests/**'
       - '.github/workflows/check-packages.yml'
 
 permissions:
@@ -18,6 +19,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  behavior:
+    name: Shell tests / ${{ matrix.branch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: [openwrt-24.10, openwrt-25.12]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Fetch the test core
+        run: |
+          archive=sing-box-1.14.4-linux-amd64-musl.tar.gz
+          curl -fSL --retry 2 --max-time 120 -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/SagerNet/sing-box/releases/download/v1.14.4/$archive"
+          printf '%s  %s\n' 8f7c5f0651238850d96a0e488e5473cd77ec1a0098f63942e943f475a12057ca \
+            "$RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+
+      - name: Run the isolated OpenWrt tests
+        env:
+          OPENWRT_BRANCH: ${{ matrix.branch }}
+        run: |
+          docker run --rm --network none \
+            -v "$GITHUB_WORKSPACE:/src:ro" \
+            -v "$RUNNER_TEMP/sing-box-1.14.4-linux-amd64-musl/sing-box:/usr/bin/sing-box:ro" \
+            -w /src "ghcr.io/openwrt/rootfs:x86_64-${OPENWRT_BRANCH}" /bin/sh -ec '
+              sing-box version
+              ash -n momo/files/momo.init
+              ash tests/tun-wait.sh
+              ash tests/service-change.sh
+              ash tests/subscription-lock.sh
+            '
+
   build:
     name: aarch64_cortex-a53 / ${{ matrix.branch }}
     runs-on: ubuntu-latest

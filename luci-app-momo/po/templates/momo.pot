@@ -643,3 +643,9 @@ msgstr ""
 #: applications/luci-app-momo/htdocs/luci-static/resources/view/momo/app.js:128
 msgid "procd Config"
 msgstr ""
+
+msgid "Open the selected file before saving."
+msgstr ""
+
+msgid "A save is already in progress."
+msgstr ""

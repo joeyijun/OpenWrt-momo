@@ -23,6 +23,10 @@ This fork generates the runtime profile in memory. When profile testing is enabl
 
 When remote subscriptions are preferred and a cached copy exists, startup waits up to 10 seconds for one download attempt and uses the cache if it fails. Manual refreshes also fetch quota details from the optional separate URL.
 
+Concurrent refreshes of the same subscription share a lock. Reload and restart prepare the profile before changing the running service. LuCI polls only the visible log tab and shows up to 16 KiB per refresh, with full logs available on demand. The editor skips writes when the file contents match.
+
+[GitHub Actions](https://github.com/joeyijun/OpenWrt-momo/actions/workflows/check-packages.yml) publishes ARM64 test packages. Choose the build for your OpenWrt version and use the momo and LuCI packages from the same build.
+
 ## Install or Update Upstream Packages
 
 These commands install the upstream packages. To build the fork, use the compilation steps below.

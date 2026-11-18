@@ -650,3 +650,9 @@ msgstr "用户代理（UA）"
 #: applications/luci-app-momo/htdocs/luci-static/resources/view/momo/app.js:128
 msgid "procd Config"
 msgstr "procd 配置"
+
+msgid "Open the selected file before saving."
+msgstr "请先打开所选文件，再保存。"
+
+msgid "A save is already in progress."
+msgstr "正在保存，请稍后再试。"

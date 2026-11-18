@@ -3,6 +3,9 @@
 START=99
 STOP=10
 USE_PROCD=1
+# rc.common takes the service lock when it loads procd. Subscription refreshes
+# coordinate with startup through their own lock, one per subscription.
+[ "${action:-}" != update_subscription ] || USE_PROCD=
 
 PROG="/usr/bin/sing-box"
 momo_profile_prepared=0
@@ -236,6 +239,29 @@ prepare_run_profile() (
 	publish_profile "$candidate" "$RUN_PROFILE_PATH"
 )
 
+tun_link_is_up() {
+	local flags
+	read -r flags 2>/dev/null < "/sys/class/net/$1/flags" || return 1
+	# Same IFF_UP flag used by ip link. Avoid two subprocesses per poll.
+	[ "$((flags & 1))" -ne 0 ]
+}
+
+wait_for_tun() {
+	local device="$1" remaining="$2" interval="$3" step
+	# Keep leading zeroes in a UCI value from being interpreted as octal.
+	remaining="${remaining#"${remaining%%[!0]*}"}"
+	interval="${interval#"${interval%%[!0]*}"}"
+	remaining="${remaining:-0}"
+	[ "$interval" -gt 0 ] 2>/dev/null || interval=1
+	while ! tun_link_is_up "$device"; do
+		[ "$remaining" -gt 0 ] 2>/dev/null || return 1
+		step="$interval"
+		[ "$step" -le "$remaining" ] || step="$remaining"
+		sleep "$step"
+		remaining=$((remaining - step))
+	done
+}
+
 service_started() {
 	# check if started
 	if [ ! -f "$STARTED_FLAG_PATH" ]; then
@@ -297,19 +323,12 @@ service_started() {
 		# wait for tun device online
 		if [ "$tun_enable" = 1 ]; then
 			log "Proxy" "Waiting for tun device online within $tun_timeout seconds..."
-			while [ "$tun_timeout" -gt 0 ]; do
-				if ip -j link show dev "$tun_device" 2>/dev/null | jsonfilter -q -e "@[@['flags'][@='UP']]" > /dev/null 2>&1; then
-					log "Proxy" "TUN device is online."
-					break
-				fi
-				tun_timeout=$((tun_timeout - tun_interval))
-				sleep "$tun_interval"
-			done
-			if [ "$tun_timeout" -le 0 ]; then
+			if ! wait_for_tun "$tun_device" "$tun_timeout" "$tun_interval"; then
 				log "Proxy" "Timeout, TUN device is not online."
 				log "App" "Exit."
 				return
 			fi
+			log "Proxy" "TUN device is online."
 		fi
 		# fix compatible with dockerd
 		## cgroupfs-mount
@@ -380,25 +399,42 @@ service_stopped() {
 	cleanup
 }
 
-reload_service() {
-	local enabled momo_profile_prepared=0
+prepare_service_change() {
+	local enabled operation="$1"
 	prepare_files
-	config_load momo
+	if ! config_load momo; then
+		log "App" "$operation skipped. Could not load configuration."
+		return 1
+	fi
 	config_get_bool enabled "config" "enabled" 0
 	if [ "$enabled" = 1 ]; then
 		if [ ! -x "$PROG" ]; then
-			log "App" "Reload skipped. Core is not executable."
+			log "App" "$operation skipped. Core is not executable."
 			return 1
 		fi
 		if ! prepare_selected_profile; then
-			log "App" "Reload skipped. Please check the profile and core log."
+			log "App" "$operation skipped. Please check the profile and core log."
 			return 1
 		fi
 		# rc.common calls start_service through start in the same shell.
 		momo_profile_prepared=1
 	fi
+}
+
+reload_service() {
+	local momo_profile_prepared=0
+	prepare_service_change Reload || return 1
 	cleanup
 	start
+}
+
+restart() {
+	local momo_profile_prepared=0
+	prepare_service_change Restart || return 1
+	trap '' TERM
+	stop "$@"
+	trap - TERM
+	start "$@"
 }
 
 service_triggers() {
