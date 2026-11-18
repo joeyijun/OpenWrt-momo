@@ -31,6 +31,14 @@ const callMomoGetPaths = rpc.declare({
     expect: { '': {} }
 });
 
+const callMomoLogTail = rpc.declare({
+    object: 'luci.momo',
+    method: 'log_tail',
+    params: ['kind'],
+    reject: true,
+    expect: { '': {} }
+});
+
 const callMomoVersion = rpc.declare({
     object: 'luci.momo',
     method: 'version',
@@ -160,24 +168,10 @@ return baseclass.extend({
         return L.resolveDefault(fs.list(paths.profiles_dir), []);
     },
 
-    getAppLog: async function () {
-        const paths = await this.getPaths();
-        return L.resolveDefault(fs.read_direct(paths.app_log_path));
-    },
-
-    getCoreLog: async function () {
-        const paths = await this.getPaths();
-        return L.resolveDefault(fs.read_direct(paths.core_log_path));
-    },
-
-    clearAppLog: async function () {
-        const paths = await this.getPaths();
-        return this.writefile(paths.app_log_path);
-    },
-
-    clearCoreLog: async function () {
-        const paths = await this.getPaths();
-        return this.writefile(paths.core_log_path);
+    getLogTail: async function (kind) {
+        const result = await callMomoLogTail(kind);
+        const bytes = Uint8Array.from(atob(result.data ?? ''), c => c.charCodeAt(0));
+        return new TextDecoder().decode(bytes);
     },
 
     debug: function () {

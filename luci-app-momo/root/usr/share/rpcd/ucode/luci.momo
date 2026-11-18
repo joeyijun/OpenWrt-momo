@@ -2,13 +2,55 @@
 
 'use strict';
 
-import { popen } from 'fs';
+import { open, popen, stat } from 'fs';
 import { get_paths, merge_exists, get_users, get_groups, get_cgroups, load_profile } from '/etc/momo/ucode/include.uc';
+
+function read_log_tail(path) {
+	const result = { data: '', truncated: false };
+	if (stat(path)?.type != 'file')
+		return result;
+
+	const file = open(path, 'r');
+	if (!file)
+		return result;
+
+	// Measure and read the same open file when a writer rotates the path.
+	const size = file.seek(0, 2) ? file.tell() : null;
+	if (size > 0) {
+		const count = min(size, 16 * 1024);
+		const offset = size - count;
+		let content = file.seek(offset) ? file.read(count) : null;
+
+		if (content != null) {
+			result.truncated = offset > 0;
+			if (result.truncated) {
+				const newline = index(content, '\n');
+				if (newline >= 0 && newline + 1 < length(content))
+					content = substr(content, newline + 1);
+			}
+			// Keep arbitrary byte boundaries intact through JSON and decode in LuCI.
+			result.data = b64enc(content);
+		}
+	}
+	file.close();
+	return result;
+}
 
 const methods = {
 	get_paths: {
 		call: function() {
 			return get_paths();
+		}
+	},
+	log_tail: {
+		args: { kind: 'kind' },
+		call: function(req) {
+			const kind = req.args?.kind;
+			if (kind == 'app')
+				return read_log_tail('/var/log/momo/app.log');
+			if (kind == 'core')
+				return read_log_tail('/var/log/momo/core.log');
+			return { data: '', truncated: false };
 		}
 	},
 	version: {

@@ -108,6 +108,12 @@ msgstr "停止时清空"
 msgid "Clear Log"
 msgstr "清空日志"
 
+msgid "Download Full Log"
+msgstr "下载完整日志"
+
+msgid "Shows up to the latest 16 KiB of the log."
+msgstr "最多显示最新的 16 KiB 日志。"
+
 #: applications/luci-app-momo/htdocs/luci-static/resources/view/momo/proxy.js:182
 #: applications/luci-app-momo/htdocs/luci-static/resources/view/momo/proxy.js:187
 msgid "Commonly Used Port"

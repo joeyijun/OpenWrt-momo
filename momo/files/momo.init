@@ -385,6 +385,31 @@ service_triggers() {
 	procd_add_reload_trigger "momo"
 }
 
+fw4_momo_delete_commands() {
+	local chain handles handle
+	for chain in input forward; do
+		handles=$(nft --json list chain inet fw4 "$chain" 2>/dev/null |
+			jsonfilter -q -e "@.nftables[@.rule.comment='momo'].rule.handle") || continue
+		for handle in $handles; do
+			case "$handle" in
+				*[!0-9]*) continue ;;
+			esac
+			printf 'delete rule inet fw4 %s handle %s\n' "$chain" "$handle"
+		done
+	done
+}
+
+cleanup_fw4_rules() {
+	local commands
+	commands=$(fw4_momo_delete_commands)
+	[ -n "$commands" ] || return 0
+	if ! printf '%s\n' "$commands" | nft -f - 2>/dev/null; then
+		# fw4 can replace the chains between listing and deleting.
+		commands=$(fw4_momo_delete_commands)
+		[ -z "$commands" ] || printf '%s\n' "$commands" | nft -f -
+	fi
+}
+
 cleanup() {
 	# load config
 	config_load momo
@@ -417,15 +442,7 @@ cleanup() {
 	ip -6 link del "$dummy_device" > /dev/null 2>&1
 	# delete hijack
 	nft delete table inet momo > /dev/null 2>&1
-	local handles handle
-	handles=$(nft --json list table inet fw4 | jsonfilter -q -e "@['nftables'][*]['rule']" | jsonfilter -q -a -e "@[@['chain']='input']" | jsonfilter -q -a -e "@[@['comment']='momo']" | jsonfilter -q -a -e "@[*]['handle']")
-	for handle in $handles; do
-		nft delete rule inet fw4 input handle "$handle"
-	done
-	handles=$(nft --json list table inet fw4 | jsonfilter -q -e "@['nftables'][*]['rule']" | jsonfilter -q -a -e "@[@['chain']='forward']" | jsonfilter -q -a -e "@[@['comment']='momo']" | jsonfilter -q -a -e "@[*]['handle']")
-	for handle in $handles; do
-		nft delete rule inet fw4 forward handle "$handle"
-	done
+	cleanup_fw4_rules
 	# delete started flag
 	rm "$STARTED_FLAG_PATH" > /dev/null 2>&1
 	# revert fix compatible with dockerd
@@ -493,6 +510,29 @@ update_subscription() (
 	config_get subscription_user_agent "$subscription_section" "user_agent"
 	[ -n "$subscription_url" ] || return 1
 
+	local subscription_file="$SUBSCRIPTIONS_DIR/$subscription_section.json"
+	# Keep the lock file in place so all callers lock the same inode.
+	exec 9>>"$TEMP_DIR/subscription.$subscription_section.lock" || return 1
+	if ! flock -n 9; then
+		log "Profile" "Subscription refresh already in progress for $subscription_name."
+		if [ "$mode" != startup ] || [ -s "$subscription_file" ]; then
+			return 1
+		fi
+
+		# BusyBox flock has no timed wait. Give a cold start time to reuse a pending download.
+		local wait_left=10
+		while ! flock -n 9; do
+			[ ! -s "$subscription_file" ] || return 0
+			if [ "$wait_left" -eq 0 ]; then
+				log "Profile" "Timed out waiting for subscription $subscription_name."
+				return 1
+			fi
+			sleep 1
+			wait_left=$((wait_left - 1))
+		done
+		[ ! -s "$subscription_file" ] || return 0
+	fi
+
 	local temp_dir; temp_dir=$(mktemp -d "$TEMP_DIR/subscription.XXXXXX") || return 1
 	local subscription_tmpfile="$temp_dir/download.json"
 	local subscription_header_tmpfile="$temp_dir/download.header"
@@ -500,7 +540,6 @@ update_subscription() (
 	local formatted_tmpfile="$temp_dir/formatted.json"
 	trap 'rm -f "$subscription_tmpfile" "$subscription_header_tmpfile" "$subscription_info_header_tmpfile" "$formatted_tmpfile"; rmdir "$temp_dir"' EXIT
 
-	local subscription_file="$SUBSCRIPTIONS_DIR/$subscription_section.json"
 	local max_time=120 connect_timeout=15 retries=3 success=0
 	if [ "$mode" = startup ] && [ -s "$subscription_file" ]; then
 		max_time=10
