@@ -1,0 +1,64 @@
+name: check-packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'momo/**'
+      - 'luci-app-momo/**'
+      - '.github/workflows/check-packages.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: aarch64_cortex-a53 / ${{ matrix.branch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - branch: openwrt-24.10
+            extension: ipk
+          - branch: openwrt-25.12
+            extension: apk
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Build with the OpenWrt SDK
+        uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434
+        env:
+          ARCH: aarch64_cortex-a53-${{ matrix.branch }}
+          FEEDNAME: momo
+          PACKAGES: luci-app-momo
+          NO_REFRESH_CHECK: true
+
+      - name: Verify package outputs
+        env:
+          EXTENSION: ${{ matrix.extension }}
+        run: |
+          for package in momo luci-app-momo; do
+            if ! find bin/packages/aarch64_cortex-a53/momo -maxdepth 1 -type f -name "${package}[_-]*.${EXTENSION}" -print -quit | grep -q .; then
+              echo "Expected ${package}.${EXTENSION} package was not built" >&2
+              exit 1
+            fi
+          done
+
+      - name: Upload packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: momo-aarch64_cortex-a53-${{ matrix.branch }}
+          path: bin/packages/aarch64_cortex-a53/momo/*.${{ matrix.extension }}
+          if-no-files-found: error

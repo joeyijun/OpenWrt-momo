@@ -22,7 +22,8 @@ const callRCInit = rpc.declare({
 const callFileWrite = rpc.declare({
     object: 'file',
     method: 'write',
-    params: ['path', 'data', 'append', 'mode']
+    params: ['path', 'data', 'append', 'mode'],
+    reject: true
 });
 
 const callMomoGetPaths = rpc.declare({
@@ -163,8 +164,8 @@ return baseclass.extend({
         return callMomoGetIdentifiers();
     },
 
-    listProfiles: async function () {
-        const paths = await this.getPaths();
+    listProfiles: async function (paths) {
+        paths = paths ?? await this.getPaths();
         return L.resolveDefault(fs.list(paths.profiles_dir), []);
     },
 

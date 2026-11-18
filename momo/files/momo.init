@@ -5,6 +5,7 @@ STOP=10
 USE_PROCD=1
 
 PROG="/usr/bin/sing-box"
+momo_profile_prepared=0
 
 . "$IPKG_INSTROOT/etc/momo/scripts/include.sh"
 
@@ -56,12 +57,9 @@ start_service() {
 	fi
 	# get config
 	## app config
-	local scheduled_restart scheduled_restart_cron profile test_profile core_only
+	local scheduled_restart scheduled_restart_cron
 	config_get_bool scheduled_restart "config" "scheduled_restart" 0
 	config_get scheduled_restart_cron "config" "scheduled_restart_cron"
-	config_get profile "config" "profile"
-	config_get_bool test_profile "config" "test_profile" 0
-	config_get_bool core_only "config" "core_only" 0
 	## procd config
 	### general
 	local fast_reload
@@ -82,60 +80,11 @@ start_service() {
 	local env_go_max_procs env_go_mem_limit
 	config_get env_go_max_procs "procd" "env_go_max_procs"
 	config_get env_go_mem_limit "procd" "env_go_mem_limit"
-	## core config
-	local redirect_inbound_tag tproxy_inbound_tag tun_inbound_tag dns_inbound_tag fake_ip_dns_server_tag
-	config_get redirect_inbound_tag "core" "redirect_inbound_tag"
-	config_get tproxy_inbound_tag "core" "tproxy_inbound_tag"
-	config_get tun_inbound_tag "core" "tun_inbound_tag"
-	config_get dns_inbound_tag "core" "dns_inbound_tag"
-	config_get fake_ip_dns_server_tag "core" "fake_ip_dns_server_tag"
-	## proxy config
-	local proxy_enabled ipv4_dns_hijack ipv6_dns_hijack tcp_mode udp_mode
-	config_get_bool proxy_enabled "proxy" "enabled" 0
-	config_get_bool ipv4_dns_hijack "proxy" "ipv4_dns_hijack" 0
-	config_get_bool ipv6_dns_hijack "proxy" "ipv6_dns_hijack" 0
-	config_get tcp_mode "proxy" "tcp_mode"
-	config_get udp_mode "proxy" "udp_mode"
 	## log config
 	local log_scheduled_clear log_scheduled_clear_cron
 	config_get_bool log_scheduled_clear "log" "scheduled_clear" 0
 	config_get log_scheduled_clear_cron "log" "scheduled_clear_cron"
-	# get profile
-	local profile_file
-	local profile_type; profile_type=$(echo "$profile" | cut -d ':' -f 1)
-	local profile_id; profile_id=$(echo "$profile" | cut -d ':' -f 2)
-	if [ "$profile_type" = "file" ]; then
-		local profile_name; profile_name="$profile_id"
-		profile_file="$PROFILES_DIR/$profile_name"
-		log "Profile" "Use file: $profile_name."
-		if [ ! -f "$profile_file" ]; then
-			log "Profile" "File not found."
-			log "App" "Exit."
-			return
-		fi
-	elif [ "$profile_type" = "subscription" ]; then
-		local subscription_section; subscription_section="$profile_id"
-		local subscription_name subscription_prefer
-		config_get subscription_name "$subscription_section" "name"
-		config_get subscription_prefer "$subscription_section" "prefer" "remote"
-		log "Profile" "Use subscription: $subscription_name."
-		profile_file="$SUBSCRIPTIONS_DIR/$subscription_section.json"
-		if [ "$subscription_prefer" = "remote" ] || [ ! -s "$profile_file" ]; then
-			if ! update_subscription "$subscription_section" startup && [ -s "$profile_file" ]; then
-				log "Profile" "Using cached subscription."
-			fi
-		fi
-		if [ ! -s "$profile_file" ]; then
-			log "Profile" "Subscription file not found."
-			log "App" "Exit."
-			return
-		fi
-	else
-		log "Profile" "No profile/subscription selected."
-		log "App" "Exit."
-		return
-	fi
-	if ! prepare_run_profile "$profile_file"; then
+	if [ "$momo_profile_prepared" != 1 ] && ! prepare_selected_profile; then
 		log "Profile" "Could not prepare configuration. Please check the core log."
 		log "App" "Exit."
 		return 1
@@ -180,6 +129,61 @@ start_service() {
 	fi
 	# set started flag
 	touch "$STARTED_FLAG_PATH"
+}
+
+prepare_selected_profile() {
+	local profile profile_file test_profile core_only
+	local redirect_inbound_tag tproxy_inbound_tag tun_inbound_tag dns_inbound_tag
+	local proxy_enabled ipv4_dns_hijack ipv6_dns_hijack tcp_mode udp_mode
+	local env_go_max_procs env_go_mem_limit
+
+	config_get profile "config" "profile"
+	config_get_bool test_profile "config" "test_profile" 0
+	config_get_bool core_only "config" "core_only" 0
+	config_get redirect_inbound_tag "core" "redirect_inbound_tag"
+	config_get tproxy_inbound_tag "core" "tproxy_inbound_tag"
+	config_get tun_inbound_tag "core" "tun_inbound_tag"
+	config_get dns_inbound_tag "core" "dns_inbound_tag"
+	config_get_bool proxy_enabled "proxy" "enabled" 0
+	config_get_bool ipv4_dns_hijack "proxy" "ipv4_dns_hijack" 0
+	config_get_bool ipv6_dns_hijack "proxy" "ipv6_dns_hijack" 0
+	config_get tcp_mode "proxy" "tcp_mode"
+	config_get udp_mode "proxy" "udp_mode"
+	config_get env_go_max_procs "procd" "env_go_max_procs"
+	config_get env_go_mem_limit "procd" "env_go_mem_limit"
+
+	case "$profile" in
+		file:*)
+			local profile_name="${profile#file:}"
+			profile_file="$PROFILES_DIR/$profile_name"
+			log "Profile" "Use file: $profile_name."
+			if [ ! -f "$profile_file" ]; then
+				log "Profile" "File not found."
+				return 1
+			fi
+		;;
+		subscription:*)
+			local subscription_section="${profile#subscription:}" subscription_name subscription_prefer
+			config_get subscription_name "$subscription_section" "name"
+			config_get subscription_prefer "$subscription_section" "prefer" "remote"
+			log "Profile" "Use subscription: $subscription_name."
+			profile_file="$SUBSCRIPTIONS_DIR/$subscription_section.json"
+			if [ "$subscription_prefer" = "remote" ] || [ ! -s "$profile_file" ]; then
+				if ! update_subscription "$subscription_section" startup && [ -s "$profile_file" ]; then
+					log "Profile" "Using cached subscription."
+				fi
+			fi
+			if [ ! -s "$profile_file" ]; then
+				log "Profile" "Subscription file not found."
+				return 1
+			fi
+		;;
+		*)
+			log "Profile" "No profile/subscription selected."
+			return 1
+		;;
+	esac
+	prepare_run_profile "$profile_file"
 }
 
 check_inbound() {
@@ -377,6 +381,22 @@ service_stopped() {
 }
 
 reload_service() {
+	local enabled momo_profile_prepared=0
+	prepare_files
+	config_load momo
+	config_get_bool enabled "config" "enabled" 0
+	if [ "$enabled" = 1 ]; then
+		if [ ! -x "$PROG" ]; then
+			log "App" "Reload skipped. Core is not executable."
+			return 1
+		fi
+		if ! prepare_selected_profile; then
+			log "App" "Reload skipped. Please check the profile and core log."
+			return 1
+		fi
+		# rc.common calls start_service through start in the same shell.
+		momo_profile_prepared=1
+	fi
 	cleanup
 	start
 }
